@@ -215,6 +215,10 @@ class MediaHandler(FileSystemEventHandler):
     def on_moved(self, event):
         self.handle(event, event.dest_path)
 
+    # A file copied or written in place keeps changing mtime after it is created
+    def on_closed(self, event):
+        self.handle(event, event.src_path)
+
     def handle(self, event, path):
         if event.is_directory:
             return
