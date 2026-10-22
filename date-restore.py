@@ -27,7 +27,7 @@ VIDEO_EXTENSIONS = {
     if ext.strip()
 }
 
-EPISODE_RE = re.compile(r"(S\d{2}E\d{2}(?:-E\d{2})?)", re.IGNORECASE)
+EPISODE_RE = re.compile(r"(S\d{2,}E\d{2,}(?:-E\d{2,})?)", re.IGNORECASE)
 
 
 def main():
