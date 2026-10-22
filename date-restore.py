@@ -38,16 +38,9 @@ def main():
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
 
     index = load_index()
-    scan(index)
 
-    # Always save once so a misconfigured index location fails immediately
-    if not save_index(index):
-        sys.exit(
-            f"Cannot write index file {INDEX_FILE}. Its directory must be "
-            f"writable, and the file must not be mounted on its own. Exiting."
-        )
-    unsaved = False
-
+    # Start watching before the first scan so no changes are missed.
+    # The watcher only restores indexed entries, so this is safe.
     handler = MediaHandler(index)
 
     observer = Observer()
@@ -59,9 +52,19 @@ def main():
         observer.schedule(handler, str(TV), recursive=True)
     observer.start()
 
-    print(f"Watching for file changes. Scan every {SCAN_INTERVAL}s")
-
     try:
+        scan(index)
+
+        # Always save once so a misconfigured index location fails immediately
+        if not save_index(index):
+            sys.exit(
+                f"Cannot write index file {INDEX_FILE}. Its directory must be "
+                f"writable, and the file must not be mounted on its own. Exiting."
+            )
+        unsaved = False
+
+        print(f"Watching for file changes. Scan every {SCAN_INTERVAL}s")
+
         while observer.is_alive():
             observer.join(SCAN_INTERVAL)
             if scan(index) or unsaved:
