@@ -1,6 +1,7 @@
 import errno
 import json
 import os
+import shutil
 import signal
 import time
 
@@ -285,15 +286,39 @@ def test_watches_directory_created_later(app, media):
     media.movies.rmdir()
     observer = app.Observer()
     handler = app.MediaHandler({"movies/Movie (2020)": OLD})
-    watched = set()
+    watched = {}
     observer.start()
     try:
         app.watch_new_dirs(observer, handler, watched)
-        assert watched == {app.TV}
+        assert set(watched) == {app.TV}
 
         media.make_movie("Movie (2020)", OLD)
         app.watch_new_dirs(observer, handler, watched)
-        assert watched == {app.MOVIES, app.TV}
+        assert set(watched) == {app.MOVIES, app.TV}
+
+        target = media.movies / "Movie (2020)" / "Movie (2020) - 2160p.mkv"
+        target.write_bytes(b"upgrade")
+        assert wait_for(lambda: mtime(target) == OLD)
+    finally:
+        observer.stop()
+        observer.join()
+
+
+@pytest.mark.parametrize("replace", ["rename", "delete"])
+def test_watches_replaced_directory(app, media, tmp_path, replace):
+    media.make_movie("Movie (2020)", OLD)
+    observer = app.Observer()
+    handler = app.MediaHandler({"movies/Movie (2020)": OLD})
+    watched = {}
+    app.watch_new_dirs(observer, handler, watched)
+    observer.start()
+    try:
+        if replace == "rename":
+            media.movies.rename(tmp_path / "old-movies")
+        else:
+            shutil.rmtree(media.movies)
+        media.make_movie("Movie (2020)", OLD)
+        app.watch_new_dirs(observer, handler, watched)
 
         target = media.movies / "Movie (2020)" / "Movie (2020) - 2160p.mkv"
         target.write_bytes(b"upgrade")

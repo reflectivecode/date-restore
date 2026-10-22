@@ -53,7 +53,7 @@ def main():
     handler = MediaHandler(index)
 
     observer = Observer()
-    watched = set()
+    watched = {}
     watch_new_dirs(observer, handler, watched)
     try:
         observer.start()
@@ -85,16 +85,37 @@ def main():
 
 
 def watch_new_dirs(observer, handler, watched):
-    # A media directory missing at startup is watched once it appears
+    # A media directory missing at startup is watched once it appears. One
+    # that is replaced is watched again: a watch follows a moved directory,
+    # and stops when its directory is deleted.
     for path in (MOVIES, TV):
-        if path in watched or not path.exists():
-            continue
-        print(f"Watching {path}")
         try:
-            observer.schedule(handler, str(path), recursive=True)
+            stat = path.stat()
+        except OSError:
+            continue
+        identity = (stat.st_dev, stat.st_ino)
+
+        if path in watched:
+            watch, watched_identity = watched[path]
+            if identity == watched_identity and is_watching(observer, watch):
+                continue
+            print(f"Watching replaced directory {path}")
+            try:
+                observer.unschedule(watch)
+            except KeyError:
+                pass
+        else:
+            print(f"Watching {path}")
+
+        try:
+            watch = observer.schedule(handler, str(path), recursive=True)
         except OSError as e:
             exit_watch_error(e)
-        watched.add(path)
+        watched[path] = (watch, identity)
+
+
+def is_watching(observer, watch):
+    return any(e.watch == watch and e.is_alive() for e in observer.emitters)
 
 
 def exit_watch_error(error):

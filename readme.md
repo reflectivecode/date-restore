@@ -114,7 +114,7 @@ The next periodic scan will discover and index new media.
 
 Handling files when they are closed means files that are copied in, or overwritten in place, are restored as soon as writing finishes.
 
-A media directory that does not exist at startup is watched once it appears, from the next periodic scan.
+A media directory that does not exist at startup is watched once it appears, from the next periodic scan. A media directory that is deleted or moved away and then recreated is also watched again from the next periodic scan.
 
 inotify does not report changes made by other machines to a network filesystem such as NFS or SMB. On those, only the periodic scan applies.
 
