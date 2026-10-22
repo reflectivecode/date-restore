@@ -34,7 +34,7 @@ tv/
         └── Show Title (2025) - S01E01 - Episode Title - metadata.mkv
 ```
 
-The directory depth is fixed.
+The directory depth is fixed. Video files at any other depth, such as extras in a subdirectory of a movie, are ignored.
 
 Only files with extensions configured by `VIDEO_EXTENSIONS` are considered. By default `.mkv` and `.mp4`
 
@@ -46,6 +46,8 @@ A movie is identified by its movie directory:
 movies/Movie Title (2025)
 ```
 
+All video files directly inside a movie directory share the same entry, and therefore the same timestamp.
+
 ### TV episode identity
 
 An episode is identified by the show directory and episode number:
@@ -53,6 +55,8 @@ An episode is identified by the show directory and episode number:
 ```text
 tv/Show Title (2025)/S01E01
 ```
+
+The episode number must be in the `S01E01` form. Seasons and episodes have at least two digits, and may have more, such as `S01E100` or `S2024E01`. Matching is case-insensitive.
 
 Multi-episode files are kept as a single entry:
 
@@ -78,11 +82,15 @@ Example:
 }
 ```
 
-The index is loaded into memory when the program starts.
+The index is loaded into memory when the program starts, and saved after each scan that adds new entries. It is also saved once at startup, so a misconfigured index location is reported immediately.
+
+On the first run, every existing movie and episode is indexed with its current modification time. Timestamps lost to upgrades before Date Restore was installed are not recovered.
+
+Entries are never removed. If a movie or episode is deleted and later added again, it gets its original timestamp back.
 
 ### Periodic scan
 
-Every `SCAN_INTERVAL` seconds (300s by default), the filesystem is scanned.
+The filesystem is scanned at startup and then every `SCAN_INTERVAL` seconds (300s by default).
 
 For each video file:
 
@@ -97,12 +105,18 @@ This is intentional. It prevents a newly imported file from establishing a new t
 
 The inotify watcher handles changes immediately.
 
-When a video file is created or moved into a watched directory:
+When a video file is created, moved into a watched directory, or closed after being written:
 
 * If the movie/episode exists in the index, its original modification time is restored.
 * If it does not exist in the index, nothing is done.
 
 The next periodic scan will discover and index new media.
+
+Handling files when they are closed means files that are copied in, or overwritten in place, are restored as soon as writing finishes.
+
+inotify does not report changes made by other machines to a network filesystem such as NFS or SMB. On those, only the periodic scan applies.
+
+The watcher uses one inotify watch per directory. Very large libraries can exceed the host's `fs.inotify.max_user_watches` limit. Date Restore then exits with a message naming the setting to raise.
 
 ## Environment Variables
 
@@ -124,16 +138,17 @@ Path to the JSON index.
 
 Default: `/media/media-timestamps.json`
 
+The directory containing the index must be writable, because the index is saved by writing a temporary file next to it and renaming it into place. Do not mount the index file on its own as a Docker volume; mount its directory instead.
 
 ### `SCAN_INTERVAL`
 
-Number of seconds between filesystem scans.
+Number of seconds between filesystem scans. Must be a whole number, 1 or more.
 
 Default: `300`
 
 ### `VIDEO_EXTENSIONS`
 
-Comma-separated list of video file extensions.
+Comma-separated list of video file extensions. Matching is case-insensitive.
 
 Default: `mkv,mp4`
 
@@ -167,7 +182,7 @@ VIDEO_EXTENSIONS=mkv,mp4,m4v,avi
 
 ## Docker
 
-The latest Docker image is automatically built and pushed to both of these registries:
+The latest Docker image is automatically built for `linux/amd64` and `linux/arm64` and pushed to both of these registries:
 
 ```text
 ghcr.io/reflectivecode/date-restore:latest
@@ -179,28 +194,13 @@ and
 reflectivecode/date-restore:latest
 ```
 
-The container needs access to the media directories because it reads and modifies their filesystem timestamps. The container does not need to run as root nor does it need any network access. The container can run in a readonly filesystem as long as it has write access to the media directories and the index file.
+The container needs access to the media directories because it reads and modifies their filesystem timestamps. It does not need any network access, and can run with a read-only filesystem as long as it can write to the media files and the index file's directory.
 
-For example:
+### Permissions
 
-```bash
-docker run -d \
-  --name date-restore \
-  --restart unless-stopped \
-  --read-only \
-  --network=none \
-  -e MOVIES_DIR=/media/movies \
-  -e TV_DIR=/media/tv \
-  -e INDEX_FILE=/media/media-timestamps.json \
-  -e SCAN_INTERVAL=300 \
-  -e VIDEO_EXTENSIONS=mkv,mp4 \
-  -v /host_path/media:/media \
-  ghcr.io/reflectivecode/date-restore:latest
-```
+Setting a file's modification time to a specific value requires **owning the file**. Write permission, including group write permission, is not enough.
 
-### Running as a specific user
-
-The container should normally run as the same user that owns the media files, or as a user with permission to modify their timestamps.
+Run the container as the user that owns the media files, which is usually the user that Sonarr and Radarr run as. The image runs as root unless a user is specified, so specifying one is recommended.
 
 For example:
 
@@ -219,6 +219,10 @@ docker run -d \
   -v /host_path/media:/media \
   ghcr.io/reflectivecode/date-restore:latest
 ```
+
+Replace `$(id -u):$(id -g)` with the UID and GID of the media files' owner if they are owned by a different user.
+
+Files Date Restore cannot change are logged and skipped. See [Logs](#logs).
 
 ## Docker Compose
 
@@ -251,8 +255,53 @@ PUID=1000
 PGID=1000
 ```
 
-Replace those values with the UID and GID that should have permission to modify the media files.
+Replace those values with the UID and GID of the user that owns the media files.
 
+## Running Without Docker
+
+Date Restore requires Python 3.9 or later on Linux.
+
+```bash
+pip install -r requirements.txt
+MOVIES_DIR=/path/to/movies TV_DIR=/path/to/tv INDEX_FILE=/path/to/media-timestamps.json python3 date-restore.py
+```
+
+## Development
+
+The tests require Linux, and run against the real filesystem and inotify watcher.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Some permission tests are skipped when running as root.
+
+## Logs
+
+Each scan ends with a summary:
+
+```text
+Scan complete: 1250 found, 2 new, 1 restored, 1245 kept, 2 failed, 1250 indexed
+```
+
+* `found`: video files matching the expected structure
+* `new`: files added to the index
+* `restored`: files whose modification time was restored
+* `kept`: files whose modification time already matched the index
+* `failed`: files whose modification time could not be restored
+* `indexed`: total entries in the index
+
+Problems with individual files or directories, such as a file owned by another user or an unreadable directory, are logged and skipped. They do not stop the program.
+
+Control characters in filenames are logged as escape sequences such as `\x0a`, so each message is always a single line.
+
+Date Restore exits with an error message for configuration problems:
+
+* The index file is corrupt or contains a value that is not a timestamp. Fix or restore the file, or delete it to rebuild the index from current modification times.
+* The index file cannot be written. Check that its directory is writable and that the file is not mounted on its own.
+* The inotify watch or instance limit is reached.
+* `SCAN_INTERVAL` is not a whole number of 1 or more.
 
 ## Important Notes
 
@@ -260,9 +309,11 @@ Replace those values with the UID and GID that should have permission to modify 
 
 Date Restore does **not** modify the filesystem creation/birth time.
 
-Instead, it records the original file's **modification time (****`mtime`****)** and restores that timestamp when the media is upgraded.
+Instead, it records the original file's **modification time** (`mtime`) and restores that timestamp when the media is upgraded.
 
 The filesystem creation time remains unchanged.
+
+This works with Jellyfin's "Use file creation date" setting because .NET, which Jellyfin is built on, does not read the birth time on Linux. It instead reports the earlier of the file's modification time and status change time (`ctime`). Restoring the modification time sets the status change time to the current time, so the restored modification time is the one reported.
 
 ### New media
 
@@ -293,25 +344,31 @@ For an existing movie:
 ```text
 Original:
 Movie (2025) - [1080p][x264]-Group.mkv
-mtime = 2025-08-15 21:31:42
+mtime = 2025-08-16 00:31:42 UTC
 
           ↓ Upgrade
 
 New:
 Movie (2025) - [2160p][x265]-OtherGroup.mkv
-mtime = 2026-08-10 01:20:00
+mtime = 2026-08-10 01:20:00 UTC
 
           ↓ Date Restore
 
 New:
 Movie (2025) - [2160p][x265]-OtherGroup.mkv
-mtime = 2025-08-15 21:31:42
+mtime = 2025-08-16 00:31:42 UTC
 ```
 
 The index remains:
 
-```
+```json
 {
   "movies/Movie (2025)": 1755304302.123
 }
 ```
+
+### Other changes to indexed files
+
+The index records one timestamp per movie or episode, and every change to an indexed file's modification time is reverted, not only upgrades. For example, editing a file's tags in place also has its modification time restored.
+
+Renaming a movie or show directory creates a new index entry, so the renamed media is indexed with its current modification time.
