@@ -53,21 +53,12 @@ def main():
     handler = MediaHandler(index)
 
     observer = Observer()
-    if MOVIES.exists():
-        print(f"Watching {MOVIES}")
-        observer.schedule(handler, str(MOVIES), recursive=True)
-    if TV.exists():
-        print(f"Watching {TV}")
-        observer.schedule(handler, str(TV), recursive=True)
+    watched = set()
+    watch_new_dirs(observer, handler, watched)
     try:
         observer.start()
     except OSError as e:
-        sysctl = {
-            errno.ENOSPC: "fs.inotify.max_user_watches",
-            errno.EMFILE: "fs.inotify.max_user_instances",
-        }.get(e.errno)
-        hint = f" Raise the {sysctl} sysctl on the host." if sysctl else ""
-        sys.exit(f"Cannot watch media directories: {e}.{hint} Exiting.")
+        exit_watch_error(e)
 
     try:
         scan(index)
@@ -84,12 +75,35 @@ def main():
 
         while observer.is_alive():
             observer.join(SCAN_INTERVAL)
+            watch_new_dirs(observer, handler, watched)
             if scan(index) or unsaved:
                 unsaved = not save_index(index)
     finally:
         print("Stopping")
         observer.stop()
         observer.join()
+
+
+def watch_new_dirs(observer, handler, watched):
+    # A media directory missing at startup is watched once it appears
+    for path in (MOVIES, TV):
+        if path in watched or not path.exists():
+            continue
+        print(f"Watching {path}")
+        try:
+            observer.schedule(handler, str(path), recursive=True)
+        except OSError as e:
+            exit_watch_error(e)
+        watched.add(path)
+
+
+def exit_watch_error(error):
+    sysctl = {
+        errno.ENOSPC: "fs.inotify.max_user_watches",
+        errno.EMFILE: "fs.inotify.max_user_instances",
+    }.get(error.errno)
+    hint = f" Raise the {sysctl} sysctl on the host." if sysctl else ""
+    sys.exit(f"Cannot watch media directories: {error}.{hint} Exiting.")
 
 
 def load_index():

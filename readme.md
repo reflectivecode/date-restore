@@ -114,6 +114,8 @@ The next periodic scan will discover and index new media.
 
 Handling files when they are closed means files that are copied in, or overwritten in place, are restored as soon as writing finishes.
 
+A media directory that does not exist at startup is watched once it appears, from the next periodic scan.
+
 inotify does not report changes made by other machines to a network filesystem such as NFS or SMB. On those, only the periodic scan applies.
 
 The watcher uses one inotify watch per directory. Very large libraries can exceed the host's `fs.inotify.max_user_watches` limit. Date Restore then exits with a message naming the setting to raise.

@@ -281,6 +281,28 @@ def test_watcher_restores_file_overwritten_in_place(media, watch):
     assert wait_for(lambda: mtime(movie) == OLD)
 
 
+def test_watches_directory_created_later(app, media):
+    media.movies.rmdir()
+    observer = app.Observer()
+    handler = app.MediaHandler({"movies/Movie (2020)": OLD})
+    watched = set()
+    observer.start()
+    try:
+        app.watch_new_dirs(observer, handler, watched)
+        assert watched == {app.TV}
+
+        media.make_movie("Movie (2020)", OLD)
+        app.watch_new_dirs(observer, handler, watched)
+        assert watched == {app.MOVIES, app.TV}
+
+        target = media.movies / "Movie (2020)" / "Movie (2020) - 2160p.mkv"
+        target.write_bytes(b"upgrade")
+        assert wait_for(lambda: mtime(target) == OLD)
+    finally:
+        observer.stop()
+        observer.join()
+
+
 def test_watcher_ignores_new_media(media, watch, capsys):
     watch({})
     movie = media.make_movie("Movie (2020)", NEWER)
@@ -305,6 +327,16 @@ def test_sigterm_exits_cleanly(media, run_app):
     process.process.send_signal(signal.SIGTERM)
     assert process.process.wait(timeout=5) == 0
     assert "Stopping" in process.log
+
+
+def test_main_watches_directory_created_later(media, run_app, monkeypatch):
+    monkeypatch.setenv("SCAN_INTERVAL", "1")
+    media.movies.rmdir()
+    process = run_app()
+    assert process.wait_for_log("Watching for file changes"), process.log
+    assert f"Watching {media.movies}" not in process.log
+    media.movies.mkdir()
+    assert process.wait_for_log(f"Watching {media.movies}"), process.log
 
 
 @pytest.mark.skipif(is_root(), reason="root can write any directory")
