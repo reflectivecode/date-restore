@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import signal
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -29,6 +31,9 @@ EPISODE_RE = re.compile(r"(S\d{2}E\d{2}(?:-E\d{2})?)", re.IGNORECASE)
 
 
 def main():
+    # PID 1 in a container ignores SIGTERM unless a handler is installed
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
+
     index = load_index()
     scan(index)
 
@@ -50,6 +55,7 @@ def main():
             observer.join(SCAN_INTERVAL)
             scan(index)
     finally:
+        print("Stopping")
         observer.stop()
         observer.join()
 
