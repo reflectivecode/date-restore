@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import errno
 import json
 import os
 import re
@@ -50,7 +51,15 @@ def main():
     if TV.exists():
         print(f"Watching {TV}")
         observer.schedule(handler, str(TV), recursive=True)
-    observer.start()
+    try:
+        observer.start()
+    except OSError as e:
+        sysctl = {
+            errno.ENOSPC: "fs.inotify.max_user_watches",
+            errno.EMFILE: "fs.inotify.max_user_instances",
+        }.get(e.errno)
+        hint = f" Raise the {sysctl} sysctl on the host." if sysctl else ""
+        sys.exit(f"Cannot watch media directories: {e}.{hint} Exiting.")
 
     try:
         scan(index)
