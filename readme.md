@@ -36,7 +36,7 @@ tv/
 
 The directory depth is fixed. Video files at any other depth, such as extras in a subdirectory of a movie, are ignored.
 
-Only files with extensions configured by `VIDEO_EXTENSIONS` are considered. By default `.mkv` and `.mp4`
+Only files with extensions configured by `VIDEO_EXTENSIONS` are considered. By default `.mkv` and `.mp4`.
 
 ### Movie identity
 
@@ -82,7 +82,7 @@ Example:
 }
 ```
 
-The index is loaded into memory when the program starts, and saved after each scan that adds new entries. It is also saved once at startup, so a misconfigured index location is reported immediately.
+The index is loaded into memory when the program starts, and saved after each scan that adds new entries. If saving fails, it is retried after the next scan. It is also saved once at startup, so a misconfigured index location is reported immediately.
 
 On the first run, every existing movie and episode is indexed with its current modification time. Timestamps lost to upgrades before Date Restore was installed are not recovered.
 
@@ -118,7 +118,7 @@ A media directory that does not exist at startup is watched once it appears, fro
 
 inotify does not report changes made by other machines to a network filesystem such as NFS or SMB. On those, only the periodic scan applies.
 
-The watcher uses one inotify watch per directory. Very large libraries can exceed the host's `fs.inotify.max_user_watches` limit. Date Restore then exits with a message naming the setting to raise.
+The watcher uses one inotify watch per directory. If a library exceeds the host's `fs.inotify.max_user_watches` limit at startup, Date Restore exits with a message naming the setting to raise. If the limit is reached later as the library grows, directories added after that point are not watched, and only the periodic scan handles them. No message is logged in that case.
 
 ## Environment Variables
 
@@ -196,7 +196,7 @@ and
 reflectivecode/date-restore:latest
 ```
 
-The container needs access to the media directories because it reads and modifies their filesystem timestamps. It does not need any network access, and can run with a read-only filesystem as long as it can write to the media files and the index file's directory.
+The container needs access to the media directories because it reads and modifies their filesystem timestamps. It does not need any network access, and can run with a read-only filesystem as long as it can change the media files' timestamps and write to the index file's directory.
 
 ### Permissions
 
@@ -302,7 +302,7 @@ Date Restore exits with an error message for configuration problems:
 
 * The index file is corrupt or contains a value that is not a timestamp. Fix or restore the file, or delete it to rebuild the index from current modification times.
 * The index file cannot be written. Check that its directory is writable and that the file is not mounted on its own.
-* The inotify watch or instance limit is reached.
+* The inotify watch or instance limit is reached at startup.
 * `SCAN_INTERVAL` is not a whole number of 1 or more.
 
 ## Important Notes
