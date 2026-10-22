@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from collections import Counter
 from pathlib import Path
 
 from watchdog.events import FileSystemEventHandler
@@ -74,80 +75,76 @@ def save_index(index):
 
 
 def scan(index):
-    found = 0
-    added = 0
-    restored = 0
-    kept = 0
+    counts = Counter()
 
     if MOVIES.exists():
         print(f"Scanning {MOVIES}")
-        for movie_dir in MOVIES.iterdir():
+        for movie_dir in list_dir(MOVIES):
             if not movie_dir.is_dir():
                 continue
 
-            for filepath in movie_dir.iterdir():
-                key = get_key(filepath)
-                if not key:
-                    continue
-
-                mtime = get_mtime(filepath)
-                if mtime is None:
-                    continue
-
-                found += 1
-
-                if key not in index:
-                    index[key] = mtime
-                    added += 1
-                    print(f"New: {key}")
-                elif mtime != index[key]:
-                    restore_mtime(filepath, index[key])
-                    restored += 1
-                else:
-                    kept +=1
+            for filepath in list_dir(movie_dir):
+                scan_file(index, filepath, counts)
 
     if TV.exists():
         print(f"Scanning {TV}")
-        for show_dir in TV.iterdir():
+        for show_dir in list_dir(TV):
             if not show_dir.is_dir():
                 continue
 
-            for season_dir in show_dir.iterdir():
+            for season_dir in list_dir(show_dir):
                 if not season_dir.is_dir():
                     continue
 
-                for filepath in season_dir.iterdir():
-                    key = get_key(filepath)
-                    if not key:
-                        continue
+                for filepath in list_dir(season_dir):
+                    scan_file(index, filepath, counts)
 
-                    mtime = get_mtime(filepath)
-                    if mtime is None:
-                        continue
-
-                    found += 1
-
-                    if key not in index:
-                        index[key] = mtime
-                        added += 1
-                        print(f"New: {key}")
-                    elif mtime != index[key]:
-                        restore_mtime(filepath, index[key])
-                        restored += 1
-                    else:
-                        kept +=1
-
-    if added:
+    if counts["new"]:
         save_index(index)
 
     print(
         f"Scan complete: "
-        f"{found} found, "
-        f"{added} new, "
-        f"{restored} restored, "
-        f"{kept} kept, "
+        f"{counts['found']} found, "
+        f"{counts['new']} new, "
+        f"{counts['restored']} restored, "
+        f"{counts['kept']} kept, "
+        f"{counts['failed']} failed, "
         f"{len(index)} indexed"
     )
+
+
+def scan_file(index, filepath, counts):
+    key = get_key(filepath)
+    if not key:
+        return
+
+    mtime = get_mtime(filepath)
+    if mtime is None:
+        return
+
+    counts["found"] += 1
+
+    if key not in index:
+        index[key] = mtime
+        counts["new"] += 1
+        print(f"New: {key}")
+    elif mtime != index[key]:
+        if restore_mtime(filepath, index[key]):
+            counts["restored"] += 1
+        else:
+            counts["failed"] += 1
+    else:
+        counts["kept"] += 1
+
+
+def list_dir(path):
+    try:
+        return list(path.iterdir())
+    except FileNotFoundError:
+        return []
+    except OSError as e:
+        print(f"Error listing {path}: {e}")
+        return []
 
 
 def get_key(filepath):
@@ -173,6 +170,9 @@ def get_mtime(filepath):
         return filepath.stat().st_mtime
     except FileNotFoundError:
         return None
+    except OSError as e:
+        print(f"Error reading {filepath}: {e}")
+        return None
 
 
 def restore_mtime(filepath, timestamp):
@@ -183,6 +183,10 @@ def restore_mtime(filepath, timestamp):
             os.utime(filepath, (stat.st_atime, timestamp))
     except FileNotFoundError:
         pass
+    except OSError as e:
+        print(f"Error changing mtime of {filepath}: {e}")
+        return False
+    return True
 
 
 class MediaHandler(FileSystemEventHandler):
