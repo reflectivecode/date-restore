@@ -65,8 +65,18 @@ def load_index():
         print(f"Existing index not found at {INDEX_FILE}")
         return {}
     print(f"Loading index from {INDEX_FILE}")
-    with INDEX_FILE.open() as f:
-        return json.load(f)
+    try:
+        with INDEX_FILE.open() as f:
+            index = json.load(f)
+        if not isinstance(index, dict):
+            raise ValueError("expected a JSON object")
+    except ValueError as e:
+        sys.exit(
+            f"Index file {INDEX_FILE} is corrupt: {e}\n"
+            f"Fix or restore the file, or delete it to rebuild the index "
+            f"from current modification times. Exiting."
+        )
+    return index
 
 
 def save_index(index):
