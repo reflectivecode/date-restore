@@ -29,6 +29,9 @@ VIDEO_EXTENSIONS = {
 
 EPISODE_RE = re.compile(r"(S\d{2,}E\d{2,}(?:-E\d{2,})?)", re.IGNORECASE)
 
+# Control characters, and undecodable filename bytes (surrogate escapes)
+UNPRINTABLE_RE = re.compile("[\x00-\x1f\x7f-\x9f\udc80-\udcff]")
+
 
 def main():
     # PID 1 in a container ignores SIGTERM unless a handler is installed
@@ -143,7 +146,7 @@ def scan_file(index, filepath, counts):
     if key not in index:
         index[key] = mtime
         counts["new"] += 1
-        print(f"New: {key}")
+        print(f"New: {escape(key)}")
     elif mtime != index[key]:
         if restore_mtime(filepath, index[key]):
             counts["restored"] += 1
@@ -159,7 +162,7 @@ def list_dir(path):
     except FileNotFoundError:
         return []
     except OSError as e:
-        print(f"Error listing {path}: {e}")
+        print(f"Error listing {escape(path)}: {e}")
         return []
 
 
@@ -187,20 +190,25 @@ def get_mtime(filepath):
     except FileNotFoundError:
         return None
     except OSError as e:
-        print(f"Error reading {filepath}: {e}")
+        print(f"Error reading {escape(filepath)}: {e}")
         return None
+
+
+def escape(value):
+    # Keep one log line per message, whatever the filename contains
+    return UNPRINTABLE_RE.sub(lambda m: f"\\x{ord(m[0]) & 0xff:02x}", str(value))
 
 
 def restore_mtime(filepath, timestamp):
     try:
         stat = filepath.stat()
         if stat.st_mtime != timestamp:
-            print(f"Changing mtime of {filepath} to {timestamp}")
+            print(f"Changing mtime of {escape(filepath)} to {timestamp}")
             os.utime(filepath, (stat.st_atime, timestamp))
     except FileNotFoundError:
         pass
     except OSError as e:
-        print(f"Error changing mtime of {filepath}: {e}")
+        print(f"Error changing mtime of {escape(filepath)}: {e}")
         return False
     return True
 
@@ -231,7 +239,7 @@ class MediaHandler(FileSystemEventHandler):
         timestamp = self.index.get(key)
 
         if timestamp is None:
-            print(f"Ignoring new video until next full scan: {filepath}")
+            print(f"Ignoring new video until next full scan: {escape(filepath)}")
             return
 
         restore_mtime(filepath, timestamp)
