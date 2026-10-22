@@ -1,3 +1,4 @@
+import ctypes
 import errno
 import json
 import os
@@ -392,6 +393,59 @@ def test_unwritable_index_exits(app, media, tmp_path, monkeypatch):
             app.main()
     finally:
         locked.chmod(0o755)
+
+
+class FakeLibc:
+    def __init__(self, init_result=None, watch_errno=None):
+        self.init_result = init_result
+        self.watch_errno = watch_errno
+
+    def inotify_init1(self, flags):
+        if self.init_result is not None:
+            return self.init_result
+        return os.open(os.devnull, os.O_RDONLY)
+
+    def inotify_add_watch(self, fd, path, mask):
+        if self.watch_errno is None:
+            return 1
+        ctypes.set_errno(self.watch_errno)
+        return -1
+
+
+def test_watch_limit_not_reached(app):
+    assert app.watch_limit_reached() is False
+
+
+@pytest.mark.parametrize(
+    "libc, reached",
+    [
+        (FakeLibc(watch_errno=errno.ENOSPC), True),
+        (FakeLibc(watch_errno=errno.EACCES), False),
+        (FakeLibc(), False),
+        (FakeLibc(init_result=-1), False),
+    ],
+)
+def test_watch_limit_reached(app, monkeypatch, libc, reached):
+    monkeypatch.setattr(app, "LIBC", libc)
+    assert app.watch_limit_reached() is reached
+
+
+def test_main_exits_when_watch_limit_reached_later(app, monkeypatch):
+    monkeypatch.setattr(app, "SCAN_INTERVAL", 0.1)
+    monkeypatch.setattr(app, "watch_limit_reached", lambda: True)
+
+    # Stop main() instead of hanging if it does not exit
+    scans = []
+    scan = app.scan
+
+    def limited_scan(index):
+        scans.append(index)
+        assert len(scans) < 3, "main() did not exit"
+        return scan(index)
+
+    monkeypatch.setattr(app, "scan", limited_scan)
+    with pytest.raises(SystemExit, match="fs.inotify.max_user_watches"):
+        app.main()
 
 
 @pytest.mark.parametrize(

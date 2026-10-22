@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import ctypes
 import errno
 import json
 import math
@@ -38,6 +39,10 @@ VIDEO_EXTENSIONS = {
 
 EPISODE_RE = re.compile(r"(S\d{2,}E\d{2,}(?:-E\d{2,})?)", re.IGNORECASE)
 
+# Used to check the inotify watch limit
+LIBC = ctypes.CDLL(None, use_errno=True)
+IN_ATTRIB = 0x00000004
+
 # Control characters, and undecodable filename bytes (surrogate escapes)
 UNPRINTABLE_RE = re.compile("[\x00-\x1f\x7f-\x9f\udc80-\udcff]")
 
@@ -75,6 +80,8 @@ def main():
 
         while observer.is_alive():
             observer.join(SCAN_INTERVAL)
+            if watch_limit_reached():
+                exit_watch_error(OSError(errno.ENOSPC, "inotify watch limit reached"))
             watch_new_dirs(observer, handler, watched)
             if scan(index) or unsaved:
                 unsaved = not save_index(index)
@@ -116,6 +123,20 @@ def watch_new_dirs(observer, handler, watched):
 
 def is_watching(observer, watch):
     return any(e.watch == watch and e.is_alive() for e in observer.emitters)
+
+
+def watch_limit_reached():
+    # Once the limit is reached, watchdog silently skips new directories,
+    # so check whether the kernel will still grant a watch of our own
+    fd = LIBC.inotify_init1(os.O_CLOEXEC)
+    if fd < 0:
+        return False
+    try:
+        if LIBC.inotify_add_watch(fd, b"/", IN_ATTRIB) >= 0:
+            return False
+        return ctypes.get_errno() == errno.ENOSPC
+    finally:
+        os.close(fd)
 
 
 def exit_watch_error(error):

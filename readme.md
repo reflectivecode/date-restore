@@ -118,7 +118,7 @@ A media directory that does not exist at startup is watched once it appears, fro
 
 inotify does not report changes made by other machines to a network filesystem such as NFS or SMB. On those, only the periodic scan applies.
 
-The watcher uses one inotify watch per directory. If a library exceeds the host's `fs.inotify.max_user_watches` limit at startup, Date Restore exits with a message naming the setting to raise. If the limit is reached later as the library grows, directories added after that point are not watched, and only the periodic scan handles them. No message is logged in that case.
+The watcher uses one inotify watch per directory. If a library exceeds the host's `fs.inotify.max_user_watches` limit, Date Restore exits with a message naming the setting to raise. This is checked at startup and before each periodic scan, so a library that grows past the limit is reported at the next scan. The limit applies to all processes running as the same user, so Date Restore also exits if other processes use up the remaining watches.
 
 ## Environment Variables
 
@@ -302,7 +302,7 @@ Date Restore exits with an error message for configuration problems:
 
 * The index file is corrupt or contains a value that is not a timestamp. Fix or restore the file, or delete it to rebuild the index from current modification times.
 * The index file cannot be written. Check that its directory is writable and that the file is not mounted on its own.
-* The inotify watch or instance limit is reached at startup.
+* The inotify watch or instance limit is reached.
 * `SCAN_INTERVAL` is not a whole number of 1 or more.
 
 ## Important Notes
