@@ -40,6 +40,14 @@ def main():
     index = load_index()
     scan(index)
 
+    # Always save once so a misconfigured index location fails immediately
+    if not save_index(index):
+        sys.exit(
+            f"Cannot write index file {INDEX_FILE}. Its directory must be "
+            f"writable, and the file must not be mounted on its own. Exiting."
+        )
+    unsaved = False
+
     handler = MediaHandler(index)
 
     observer = Observer()
@@ -56,7 +64,8 @@ def main():
     try:
         while observer.is_alive():
             observer.join(SCAN_INTERVAL)
-            scan(index)
+            if scan(index) or unsaved:
+                unsaved = not save_index(index)
     finally:
         print("Stopping")
         observer.stop()
@@ -85,12 +94,21 @@ def load_index():
 def save_index(index):
     print(f"Saving index to {INDEX_FILE}")
     temp_file = INDEX_FILE.with_suffix(".tmp")
-    with temp_file.open("w") as f:
-        json.dump(index, f, indent=2, sort_keys=True)
-        f.write("\n")
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temp_file, INDEX_FILE)
+    try:
+        with temp_file.open("w") as f:
+            json.dump(index, f, indent=2, sort_keys=True)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_file, INDEX_FILE)
+    except OSError as e:
+        print(f"Error saving index to {INDEX_FILE}: {e}")
+        try:
+            temp_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def scan(index):
@@ -118,9 +136,6 @@ def scan(index):
                 for filepath in list_dir(season_dir):
                     scan_file(index, filepath, counts)
 
-    if counts["new"]:
-        save_index(index)
-
     print(
         f"Scan complete: "
         f"{counts['found']} found, "
@@ -130,6 +145,7 @@ def scan(index):
         f"{counts['failed']} failed, "
         f"{len(index)} indexed"
     )
+    return counts["new"]
 
 
 def scan_file(index, filepath, counts):
