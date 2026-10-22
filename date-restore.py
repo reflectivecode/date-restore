@@ -19,7 +19,15 @@ MOVIES = Path(os.environ.get("MOVIES_DIR", "/media/movies"))
 TV = Path(os.environ.get("TV_DIR", "/media/tv"))
 INDEX_FILE = Path(os.environ.get("INDEX_FILE", "/media/media-timestamps.json"))
 
-SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "300"))
+try:
+    SCAN_INTERVAL = int(os.environ.get("SCAN_INTERVAL", "300"))
+except ValueError:
+    SCAN_INTERVAL = 0
+if SCAN_INTERVAL < 1:
+    sys.exit(
+        f"SCAN_INTERVAL must be a whole number of seconds, 1 or more "
+        f"(got {os.environ['SCAN_INTERVAL']!r}). Exiting."
+    )
 
 VIDEO_EXTENSIONS = {
     ext.strip().lower()
