@@ -2,6 +2,7 @@
 
 import errno
 import json
+import math
 import os
 import re
 import signal
@@ -94,6 +95,9 @@ def load_index():
             index = json.load(f)
         if not isinstance(index, dict):
             raise ValueError("expected a JSON object")
+        for key, value in index.items():
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f"timestamp for {key!r} is not a number")
     except ValueError as e:
         sys.exit(
             f"Index file {INDEX_FILE} is corrupt: {e}\n"
