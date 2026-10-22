@@ -266,6 +266,17 @@ pip install -r requirements.txt
 MOVIES_DIR=/path/to/movies TV_DIR=/path/to/tv INDEX_FILE=/path/to/media-timestamps.json python3 date-restore.py
 ```
 
+## Development
+
+The tests require Linux, and run against the real filesystem and inotify watcher.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Some permission tests are skipped when running as root.
+
 ## Logs
 
 Each scan ends with a summary:
